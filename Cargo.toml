@@ -1,0 +1,13 @@
+[package]
+name = "data_ingestion_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+futures-util = "0.3.32"
+tokio = { version = "1", features = ["full"]}
+tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-native-roots"]}
+rustls = { version = "0.23", features = ["ring"] }
+url = "2.5.8"
+serde_json = "1.0.150"
