@@ -1,3 +1,4 @@
+use tokio::time;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use anyhow::Result;
@@ -23,7 +24,7 @@ struct Bbo {
 #[derive(Debug, Deserialize, Serialize)]
 struct WsMessage {
     channel: String,
-    data: serde_json::Value
+    data: Option<serde_json::Value>
 }
 
 #[tokio::main]
@@ -33,7 +34,9 @@ async fn main() -> Result<()>{
         .expect("failed to install rustls crypto provider");
 
     let url = Url::parse("wss://api.hyperliquid.xyz/ws")?;
-    let (mut ws_stream, _) = connect_async(url.as_str()).await?;
+    let (ws_stream, _) = connect_async(url.as_str()).await?;
+    let (mut write, mut read) = ws_stream.split();
+
     println!("Websocket client connected");
 
     // subscribing message
@@ -43,17 +46,46 @@ async fn main() -> Result<()>{
             "subscription": {"type": "bbo", "coin": "BTC"}
         });
 
-    ws_stream.send(Message::Text(message.to_string().into())).await?;
+    write.send(Message::Text(message.to_string().into())).await?;
 
-    while let Some(msg) = ws_stream.next().await {
+    tokio::spawn(async move {
+        let mut interval = time::interval(time::Duration::from_secs(30));
+
+        loop {
+            interval.tick().await;
+
+            let ping: Value = json!(
+                {
+                    "method": "ping"
+                }
+            );
+
+            if let Err(e) = write.send(Message::Text(ping.to_string().into())).await {
+                eprintln!("heartbeat failed: {e}");
+                break;
+            }
+            
+
+        }
+
+
+    });
+
+    while let Some(msg) = read.next().await {
         let msg = msg?;
 
         if msg.is_text() {
             let text = msg.to_text()?;
             let ws_message: WsMessage = serde_json::from_str(text)?;
 
+            if ws_message.channel == "pong" {
+                println!("Pong");
+                continue;
+            }
+
             if ws_message.channel == "bbo" {
-                let bbo: Bbo = serde_json::from_value(ws_message.data)?;
+                let data = ws_message.data.unwrap();
+                let bbo: Bbo = serde_json::from_value(data)?;
 
                 // Quote has String, and String does not implement Copy so without &, it moves ownership but then Vector loses its value.
                 let bid: &Quote = &bbo.bbo[0];
