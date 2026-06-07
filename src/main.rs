@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use futures_util::{SinkExt, StreamExt};
 use url::Url;
+use std::fs::OpenOptions;
+use csv;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Quote {
@@ -71,6 +73,18 @@ async fn main() -> Result<()>{
 
     });
 
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./data/btc_bbo.csv")
+        .unwrap();
+
+    let mut wtr = csv::Writer::from_writer(file);
+    wtr.write_record(&["time", "bid_price", "bid_size", "ask_price", "ask_size"])?;
+
+
+    let mut count: u32 = 1;
     while let Some(msg) = read.next().await {
         let msg = msg?;
 
@@ -92,12 +106,22 @@ async fn main() -> Result<()>{
                 let ask: &Quote = &bbo.bbo[1];
 
                 println!(
-                    "{} bid={}, ask{}, time{}",
+                    "{} bid=({}, {}), ask=({}, {}), time={}",
                     bbo.coin,
                     bid.px,
+                    bid.sz,
                     ask.px,
+                    ask.sz,
                     bbo.time
-                )
+                );
+
+                wtr.serialize((bbo.time, &bid.px, &bid.sz, &ask.px, &ask.sz))?;
+
+                if count == 100 {
+                    wtr.flush()?;
+                    break;
+                }
+                count += 1;
             }
         }
     }
